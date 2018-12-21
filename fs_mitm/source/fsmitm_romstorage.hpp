@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2018 Atmosphère-NX
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
 #pragma once
 #include <switch.h>
 #include <stratosphere.hpp>
@@ -15,13 +31,9 @@ class RomFileStorage : public IROStorage {
         RomFileStorage(FsFile f) {
             this->base_file = new FsFile(f);
         };
-        ~RomFileStorage() {
+        virtual ~RomFileStorage() {
             fsFileClose(base_file);
             delete base_file;
-        };
-        
-        RomFileStorage *Clone() override {
-            return new RomFileStorage(this->base_file);
         };
     public:
         Result Read(void *buffer, size_t size, u64 offset) override {
@@ -42,34 +54,4 @@ class RomFileStorage : public IROStorage {
 };
 
 /* Represents a RomFS accessed via some IStorage. */
-class RomInterfaceStorage : public IROStorage {
-    private:
-        FsStorage *base_storage;
-    public:
-        RomInterfaceStorage(FsStorage *s) : base_storage(s) {
-            /* ... */
-        };
-        RomInterfaceStorage(FsStorage s) {
-            this->base_storage = new FsStorage(s);
-        };
-        ~RomInterfaceStorage() {
-            fsStorageClose(base_storage);
-            delete base_storage;
-        };
-        
-        RomInterfaceStorage *Clone() override {
-            return new RomInterfaceStorage(this->base_storage);
-        };
-    public:
-        Result Read(void *buffer, size_t size, u64 offset) override {
-            return fsStorageRead(this->base_storage, offset, buffer, size);
-        };
-        Result GetSize(u64 *out_size) override {
-            /* TODO: Merge into libnx? */
-            return fsStorageGetSize(this->base_storage, out_size);
-        };
-        Result OperateRange(u32 operation_type, u64 offset, u64 size, FsRangeInfo *out_range_info) override {
-            /* TODO: Merge into libnx? */
-            return fsStorageOperateRange(this->base_storage, operation_type, offset, size, out_range_info);
-        };
-};
+using RomInterfaceStorage = ROProxyStorage;

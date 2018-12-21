@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2018 Atmosphère-NX
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
@@ -10,6 +26,9 @@
 #include "ldr_debug_monitor.hpp"
 #include "ldr_shell.hpp"
 #include "ldr_ro_service.hpp"
+#include "ldr_tx.hpp"
+#include "ldr_usbfs.hpp"
+#include "ldr_cht.hpp"
 
 extern "C" {
     extern u32 __start__;
@@ -51,7 +70,8 @@ void __appInit(void) {
     rc = fsInitialize();
     if (R_FAILED(rc)) {
         fatalSimple(MAKERESULT(Module_Libnx, LibnxError_InitFail_FS));
-    } 
+    }
+        
     
     rc = lrInitialize();
     if (R_FAILED(rc))  {
@@ -61,11 +81,6 @@ void __appInit(void) {
     rc = fsldrInitialize();
     if (R_FAILED(rc))  {
         fatalSimple(0xCAFE << 4 | 2);
-    }
-    
-    rc = splInitialize();
-    if (R_FAILED(rc))  {
-        fatalSimple(0xCAFE << 4 | 3);
     }
 }
 
@@ -78,24 +93,34 @@ void __appExit(void) {
     smExit();
 }
 
+struct LoaderServerOptions {
+    static constexpr size_t PointerBufferSize = 0x400;
+    static constexpr size_t MaxDomains = 0;
+    static constexpr size_t MaxDomainObjects = 0;
+};
+
 int main(int argc, char **argv)
 {
     consoleDebugInit(debugDevice_SVC);
+            
+    auto server_manager = new WaitableManager<LoaderServerOptions>(1);
         
-    /* TODO: What's a good timeout value to use here? */
-    auto server_manager = std::make_unique<WaitableManager>(U64_MAX);
-    
     /* Add services to manager. */
-    server_manager->add_waitable(new ServiceServer<ProcessManagerService>("ldr:pm", 1));
-    server_manager->add_waitable(new ServiceServer<ShellService>("ldr:shel", 3));
-    server_manager->add_waitable(new ServiceServer<DebugMonitorService>("ldr:dmnt", 2));
-    if (!kernelAbove300()) {
+    server_manager->AddWaitable(new ServiceServer<UsbfsService>("usbfs", 1));
+    server_manager->AddWaitable(new ServiceServer<TXService>("tx", 1));
+    server_manager->AddWaitable(new ServiceServer<CheatService>("ldr:cht", 1));
+    server_manager->AddWaitable(new ServiceServer<ProcessManagerService>("ldr:pm", 1));
+    server_manager->AddWaitable(new ServiceServer<ShellService>("ldr:shel", 3));
+    server_manager->AddWaitable(new ServiceServer<DebugMonitorService>("ldr:dmnt", 2));
+    if (GetRuntimeFirmwareVersion() < FirmwareVersion_300) {
         /* On 1.0.0-2.3.0, Loader services ldr:ro instead of ro. */
-        server_manager->add_waitable(new ServiceServer<RelocatableObjectsService>("ldr:ro", 0x20));
+        server_manager->AddWaitable(new ServiceServer<RelocatableObjectsService>("ldr:ro", 0x20));
     }
-    
+        
     /* Loop forever, servicing our services. */
-    server_manager->process();
+    server_manager->Process();
+    
+    delete server_manager;
     
 	return 0;
 }

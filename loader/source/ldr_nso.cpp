@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2018 Atmosphère-NX, ReiSwitched
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
 #include <switch.h>
 #include <algorithm>
 #include <cstdio>
@@ -8,12 +24,25 @@
 #include "ldr_map.hpp"
 #include "ldr_random.hpp"
 #include "ldr_patcher.hpp"
+#include "ldr_content_management.hpp"
 
 static NsoUtils::NsoHeader g_nso_headers[NSO_NUM_MAX] = {0};
 static bool g_nso_present[NSO_NUM_MAX] = {0};
 
 static char g_nso_path[FS_MAX_PATH] = {0};
 static bool hidOverride = false;
+
+FILE *NsoUtils::OpenNsoFromECS(unsigned int index, ContentManagement::ExternalContentSource *ecs) {
+    std::fill(g_nso_path, g_nso_path + FS_MAX_PATH, 0);
+    snprintf(g_nso_path, FS_MAX_PATH, "%s:/%s", ecs->mountpoint, NsoUtils::GetNsoFileName(index));
+    return fopen(g_nso_path, "rb");
+}
+
+FILE *NsoUtils::OpenNsoFromHBL(unsigned int index) {
+    std::fill(g_nso_path, g_nso_path + FS_MAX_PATH, 0);
+    snprintf(g_nso_path, FS_MAX_PATH, "hbl:/%s", NsoUtils::GetNsoFileName(index));
+    return fopen(g_nso_path, "rb");
+}
 
 FILE *NsoUtils::OpenNsoFromExeFS(unsigned int index) {
     std::fill(g_nso_path, g_nso_path + FS_MAX_PATH, 0);
@@ -39,23 +68,33 @@ bool NsoUtils::CheckNsoStubbed(unsigned int index, u64 title_id) {
 }
 
 FILE *NsoUtils::OpenNso(unsigned int index, u64 title_id) {
-    u64 kDown = 0;
-    if (hidOverride){
-        hidInitialize();
-        hidScanInput();
-        kDown = hidKeysDown(CONTROLLER_P1_AUTO);
-        hidExit();
+    ContentManagement::ExternalContentSource *ecs = nullptr;
+    if ((ecs = ContentManagement::GetExternalContentSource(title_id)) != nullptr) {
+        return OpenNsoFromECS(index, ecs);
     }
-    if (title_id == 0x0100000000001000) 
-        hidOverride = true;
-    FILE *f_out = !(kDown & KEY_R) ? OpenNsoFromSdCard(index, title_id) : NULL;
-    if (f_out != NULL) {
-        return f_out;
-    } else if (CheckNsoStubbed(index, title_id)) {
-        return NULL;
-    } else {
-        return OpenNsoFromExeFS(index);
+
+    if (ContentManagement::ShouldOverrideContents(title_id)) {
+        if (ContentManagement::ShouldReplaceWithHBL(title_id)) {
+            return OpenNsoFromHBL(index);
+        }
+        
+        u64 kDown = 0;
+        if (hidOverride){
+            hidInitialize();
+            hidScanInput();
+            kDown = hidKeysDown(CONTROLLER_P1_AUTO);
+            hidExit();
+        }
+        if (title_id == 0x0100000000001000) 
+            hidOverride = true;
+        FILE *f_out = !(kDown & KEY_R) ? OpenNsoFromSdCard(index, title_id) : NULL;
+        if (f_out != NULL) {
+            return f_out;
+        } else if (CheckNsoStubbed(index, title_id)) {
+            return NULL;
+        }
     }
+    return OpenNsoFromExeFS(index);
 }
 
 bool NsoUtils::IsNsoPresent(unsigned int index) {
@@ -217,23 +256,9 @@ uintptr_t memsearch(void *startPos, size_t searchSize, void *pattern, size_t pat
     return 0;
 }
 
-void HardCodedPatches(u64 tid, u8 *code, size_t size) {
-    //Version string ;)
-    if(tid == 0x0100000000000009) {
-        u8 pattern[] = {
-            0xE1, 0x07, 0x40, 0xF9, 0xE2, 0x03, 0x18, 0x32
-        };
-        u8 patch[] = {
-            0x00, 0x44, 0x8A, 0x52, 0xA0, 0x2C, 0xAD, 0x72, 0x60, 0xD2, 0x06, 0xB8,
-            0xC0, 0x09, 0x8B, 0x52, 0x60, 0x12, 0x07, 0xB8, 0xE0, 0x03, 0x1F, 0xAA, 
-            0xFD, 0x7B, 0x42, 0xA9, 0xF4, 0x4F, 0x41, 0xA9, 0xFF, 0xC3, 0x00, 0x91, 
-            0xC0, 0x03, 0x5F, 0xD6
-        };
-        uintptr_t off = memsearch(code, size, pattern, sizeof(pattern));
-        if(off) memcpy((u8*)off + 0x10, patch, sizeof(patch));
-    }
+void HardCodedPatches(u64 tid, u8 *code, u32 seg, size_t size) {
+    //STUBBED
 }
-
 
 Result NsoUtils::LoadNsoSegment(u64 title_id, unsigned int index, unsigned int segment, FILE *f_nso, u8 *map_base, u8 *map_end) {
     bool is_compressed = ((g_nso_headers[index].flags >> segment) & 1) != 0;
@@ -262,6 +287,7 @@ Result NsoUtils::LoadNsoSegment(u64 title_id, unsigned int index, unsigned int s
             return 0xA09;
         }
     }
+
     
     if (check_hash) {
         u8 hash[0x20] = {0};
@@ -276,8 +302,7 @@ Result NsoUtils::LoadNsoSegment(u64 title_id, unsigned int index, unsigned int s
         }
     }
     
-    if(segment == 0) 
-        HardCodedPatches(title_id, dst_addr, out_size);
+    HardCodedPatches(title_id, dst_addr, segment, out_size);
     
     return 0x0;
 }
@@ -321,7 +346,7 @@ Result NsoUtils::LoadNsosIntoProcessMemory(Handle process_h, u64 title_id, NsoLo
             std::fill(map_base + bss_base, map_base + bss_base + bss_size, 0);
             
             /* Apply patches to loaded module. */
-            Patcher::ApplyPatches(title_id, map_base, bss_base);
+            PatchUtils::ApplyPatches(&g_nso_headers[i], title_id, map_base, bss_base);
             
             nso_map.Close();
             

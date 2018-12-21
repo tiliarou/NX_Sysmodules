@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2018 Atmosphère-NX
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
 #pragma once
 #include <switch.h>
 #include <array>
@@ -48,6 +64,7 @@ class Registration {
             u64 index;
             u64 process_id;
             u64 title_id;
+            u32 procFlags;
             Registration::TidSid tid_sid;
             std::array<Registration::NsoInfoHolder, NSO_INFO_MAX> nso_infos;
             std::array<Registration::NroInfo, NRO_INFO_MAX> nro_infos;

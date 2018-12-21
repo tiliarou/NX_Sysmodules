@@ -1,3 +1,19 @@
+/*
+ * Copyright (c) 2018 Atmosphère-NX
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
 #include <cstdlib>
 #include <cstdint>
 #include <cstdio>
@@ -12,13 +28,11 @@
 
 static bool IsHexadecimal(const char *str) {
     while (*str) {
-        if (('0' <= *str && *str <= '9') || 
-            ('a' <= *str && *str <= 'f') ||
-            ('A' <= *str && *str <= 'F')) {
-                str++;
-            } else {
-                return false;
-            }
+        if (isxdigit(*str)) {
+            str++;
+        } else {
+            return false;
+        }
     }
     return true;
 }
@@ -109,7 +123,22 @@ static void MountSdCard() {
     fsdevMountSdmc();
 }
 
-void EmbeddedBoot2::Main() {     
+void EmbeddedBoot2::Main() {
+    /* Wait until fs.mitm has installed itself. We want this to happen as early as possible. */
+    bool fs_mitm_installed = false;
+
+    Result rc = smManagerAmsInitialize();
+    if (R_FAILED(rc)) {
+        std::abort();
+    }
+    while (R_FAILED((rc = smManagerAmsHasMitm(&fs_mitm_installed, "fsp-srv"))) || !fs_mitm_installed) {
+        if (R_FAILED(rc)) {
+            std::abort();
+        }
+        svcSleepThread(1000ull);
+    }
+    smManagerAmsExit();
+
     /* psc, bus, pcv is the minimal set of required titles to get SD card. */ 
     /* bus depends on pcie, and pcv depends on settings. */
     /* Launch psc. */
@@ -159,7 +188,7 @@ void EmbeddedBoot2::Main() {
         }
         closedir(titles_dir);
     }
-    
+        
     /* We no longer need the SD card. */
     fsdevUnmountAll();
 }

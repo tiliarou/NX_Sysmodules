@@ -1,48 +1,61 @@
+/*
+ * Copyright (c) 2018 Atmosphère-NX
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
 #include <switch.h>
 #include "fs_shim.h"
 
-/* Necessary evil. */
-Result ipcCopyFromDomain(Handle session, u32 object_id, Service *out) {
-    u32* buf = (u32*)armGetTls();
-
+/* Missing fsp-srv commands. */
+Result fsOpenBisStorageFwd(Service* s, FsStorage* out, u32 PartitionId) {
     IpcCommand c;
     ipcInitialize(&c);
-    
+
     struct {
         u64 magic;
         u64 cmd_id;
-        u32 object_id;
+        u32 PartitionId;
     } *raw;
 
-    raw = ipcPrepareHeader(&c, sizeof(*raw));
-    buf[0] = IpcCommandType_Control;
-    raw->magic = SFCI_MAGIC;
-    raw->cmd_id = 1;
-    raw->object_id = object_id;
+    raw = serviceIpcPrepareHeader(s, &c, sizeof(*raw));
 
-    Result rc = ipcDispatch(session);
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = 12;
+    raw->PartitionId = PartitionId;
+
+    Result rc = serviceIpcDispatch(s);
 
     if (R_SUCCEEDED(rc)) {
         IpcParsedCommand r;
-        ipcParse(&r);
-
-        struct ipcCopyFromDomainResponse {
+        struct {
             u64 magic;
             u64 result;
-        } *raw = (struct ipcCopyFromDomainResponse*)r.Raw;
+        } *resp;
 
-        rc = raw->result;
+        serviceIpcParse(s, &r, sizeof(*resp));
+        resp = r.Raw;
+
+        rc = resp->result;
 
         if (R_SUCCEEDED(rc)) {
-            serviceCreate(out, r.Handles[0]);
+            serviceCreateSubservice(&out->s, s, &r, 0);
         }
     }
 
     return rc;
 }
 
-
-/* Missing fsp-srv commands. */
 Result fsOpenDataStorageByCurrentProcessFwd(Service* s, FsStorage* out) {
     IpcCommand c;
     ipcInitialize(&c);
@@ -52,7 +65,7 @@ Result fsOpenDataStorageByCurrentProcessFwd(Service* s, FsStorage* out) {
         u64 cmd_id;
     } *raw;
 
-    raw = ipcPrepareHeader(&c, sizeof(*raw));
+    raw = serviceIpcPrepareHeader(s, &c, sizeof(*raw));
 
     raw->magic = SFCI_MAGIC;
     raw->cmd_id = 200;
@@ -61,60 +74,25 @@ Result fsOpenDataStorageByCurrentProcessFwd(Service* s, FsStorage* out) {
 
     if (R_SUCCEEDED(rc)) {
         IpcParsedCommand r;
-        ipcParse(&r);
-
         struct {
             u64 magic;
             u64 result;
-        } *resp = r.Raw;
+        } *resp;
+        
+        serviceIpcParse(s, &r, sizeof(*resp));
+        resp = r.Raw;
 
         rc = resp->result;
 
         if (R_SUCCEEDED(rc)) {
-            serviceCreate(&out->s, r.Handles[0]);
+            serviceCreateSubservice(&out->s, s, &r, 0);
         }
     }
 
     return rc;
 }
 
-Result fsOpenDataStorageByCurrentProcessFromDomainFwd(Service* s, u32 *out_object_id) {
-    IpcCommand c;
-    ipcInitialize(&c);
-
-    struct {
-        u64 magic;
-        u64 cmd_id;
-    } *raw;
-
-    raw = ipcPrepareHeaderForDomain(&c, sizeof(*raw), s->object_id);
-
-    raw->magic = SFCI_MAGIC;
-    raw->cmd_id = 200;
-
-    Result rc = serviceIpcDispatch(s);
-
-    if (R_SUCCEEDED(rc)) {
-        IpcParsedCommand r;
-        ipcParseForDomain(&r);
-
-        struct {
-            u64 magic;
-            u64 result;
-            u32 object_id;
-        } *resp = r.Raw;
-
-        rc = resp->result;
-
-        if (R_SUCCEEDED(rc)) {
-            *out_object_id = resp->object_id;
-        }
-    }
-
-    return rc;
-}
-
-Result fsOpenDataStorageByDataId(Service* s, FsStorageId storage_id, u64 data_id, FsStorage* out) {
+Result fsOpenDataStorageByDataIdFwd(Service* s, FsStorageId storage_id, u64 data_id, FsStorage* out) {
     IpcCommand c;
     ipcInitialize(&c);
 
@@ -125,7 +103,7 @@ Result fsOpenDataStorageByDataId(Service* s, FsStorageId storage_id, u64 data_id
         u64 data_id;
     } *raw;
 
-    raw = ipcPrepareHeader(&c, sizeof(*raw));
+    raw = serviceIpcPrepareHeader(s, &c, sizeof(*raw));
 
     raw->magic = SFCI_MAGIC;
     raw->cmd_id = 202;
@@ -136,58 +114,18 @@ Result fsOpenDataStorageByDataId(Service* s, FsStorageId storage_id, u64 data_id
 
     if (R_SUCCEEDED(rc)) {
         IpcParsedCommand r;
-        ipcParse(&r);
-
         struct {
             u64 magic;
             u64 result;
-        } *resp = r.Raw;
+        } *resp;
+        
+        serviceIpcParse(s, &r, sizeof(*resp));
+        resp = r.Raw;
 
         rc = resp->result;
 
         if (R_SUCCEEDED(rc)) {
-            serviceCreate(&out->s, r.Handles[0]);
-        }
-    }
-
-    return rc;
-}
-
-
-Result fsOpenDataStorageByDataIdFromDomain(Service* s, FsStorageId storage_id, u64 data_id, u32 *out_object_id) {
-    IpcCommand c;
-    ipcInitialize(&c);
-
-    struct {
-        u64 magic;
-        u64 cmd_id;
-        FsStorageId storage_id;
-        u64 data_id;
-    } *raw;
-
-    raw = ipcPrepareHeaderForDomain(&c, sizeof(*raw), s->object_id);
-
-    raw->magic = SFCI_MAGIC;
-    raw->cmd_id = 202;
-    raw->storage_id = storage_id;
-    raw->data_id = data_id;
-
-    Result rc = serviceIpcDispatch(s);
-
-    if (R_SUCCEEDED(rc)) {
-        IpcParsedCommand r;
-        ipcParseForDomain(&r);
-
-        struct {
-            u64 magic;
-            u64 result;
-            u32 object_id;
-        } *resp = r.Raw;
-
-        rc = resp->result;
-
-        if (R_SUCCEEDED(rc)) {
-            *out_object_id = resp->object_id;
+            serviceCreateSubservice(&out->s, s, &r, 0);
         }
     }
 
@@ -207,7 +145,7 @@ Result fsFileOperateRange(FsFile* f, u32 op_id, u64 off, u64 len, FsRangeInfo *o
         u64 len;
     } *raw;
 
-    raw = ipcPrepareHeader(&c, sizeof(*raw));
+    raw = serviceIpcPrepareHeader(&f->s, &c, sizeof(*raw));
 
     raw->magic = SFCI_MAGIC;
     raw->cmd_id = 5;
@@ -219,13 +157,14 @@ Result fsFileOperateRange(FsFile* f, u32 op_id, u64 off, u64 len, FsRangeInfo *o
 
     if (R_SUCCEEDED(rc)) {
         IpcParsedCommand r;
-        ipcParse(&r);
-
         struct {
             u64 magic;
             u64 result;
             FsRangeInfo range_info;
-        } *resp = r.Raw;
+        } *resp;
+        
+        serviceIpcParse(&f->s, &r, sizeof(*resp));
+        resp = r.Raw;
 
         rc = resp->result;
         if (R_SUCCEEDED(rc) && out) *out = resp->range_info;
@@ -247,7 +186,7 @@ Result fsStorageOperateRange(FsStorage* s, u32 op_id, u64 off, u64 len, FsRangeI
         u64 len;
     } *raw;
 
-    raw = ipcPrepareHeader(&c, sizeof(*raw));
+    raw = serviceIpcPrepareHeader(&s->s, &c, sizeof(*raw));
 
     raw->magic = SFCI_MAGIC;
     raw->cmd_id = 5;
@@ -259,13 +198,14 @@ Result fsStorageOperateRange(FsStorage* s, u32 op_id, u64 off, u64 len, FsRangeI
 
     if (R_SUCCEEDED(rc)) {
         IpcParsedCommand r;
-        ipcParse(&r);
-
         struct {
             u64 magic;
             u64 result;
             FsRangeInfo range_info;
-        } *resp = r.Raw;
+        } *resp;
+        
+        serviceIpcParse(&s->s, &r, sizeof(*resp));
+        resp = r.Raw;
 
         rc = resp->result;
         if (R_SUCCEEDED(rc) && out) *out = resp->range_info;
